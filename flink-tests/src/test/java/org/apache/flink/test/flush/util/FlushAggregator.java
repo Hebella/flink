@@ -1,4 +1,4 @@
-package org.apache.flink.streaming.examples.allowlatency;
+package org.apache.flink.test.flush.util;
 
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -24,7 +24,7 @@ import java.util.Map;
  * <p>The example uses a built-in sample data generator that generates the streams of pairs at a
  * configurable rate.
  */
-public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
+public class FlushAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
         implements OneInputStreamOperator<Integer, Tuple2<Integer, Long>> {
     private Map<Integer, Long> bundle;
     private final KeySelector<Integer, Integer> keySelector;
@@ -32,7 +32,7 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
     private MapState<Integer, Long> kvStore;
     private long visits;
 
-    public MyAggregator(KeySelector<Integer, Integer> keySelector) {
+    public FlushAggregator(KeySelector<Integer, Integer> keySelector) {
         super();
         this.keySelector = keySelector;
     }
