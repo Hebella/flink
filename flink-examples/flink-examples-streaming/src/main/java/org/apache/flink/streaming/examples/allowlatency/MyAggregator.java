@@ -2,6 +2,8 @@ package org.apache.flink.streaming.examples.allowlatency;
 
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.IntegerTypeInfo;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -29,7 +31,7 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
     private Map<Integer, Long> bundle;
     private final KeySelector<Integer, Integer> keySelector;
     private int numOfElements;
-    private MapState<Integer, Long> kvStore;
+    private ValueState<Long> store;
     private long visits;
 
     public MyAggregator(KeySelector<Integer, Integer> keySelector) {
@@ -44,20 +46,13 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
     @Override
     public void initializeState(StateInitializationContext context) throws Exception {
         super.initializeState(context);
-
-        kvStore =
-                context.getKeyedStateStore()
-                        .getMapState(
-                                new MapStateDescriptor<Integer, Long>(
-                                        "KV-Store",
-                                        IntegerTypeInfo.INT_TYPE_INFO,
-                                        IntegerTypeInfo.LONG_TYPE_INFO));
+        store = context.getKeyedStateStore()
+                .getState(new ValueStateDescriptor<>("store", Long.class));
     }
 
     @Override
     public void open() throws Exception {
         super.open();
-        this.numOfElements = 0;
         this.bundle = new HashMap<>();
         visits = 0;
 
@@ -71,18 +66,16 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
     public void processElement(StreamRecord<Integer> element) throws Exception {
         Integer input = element.getValue();
         if (getExecutionConfig().getAllowedLatency() > 0) {
-            Integer bundleKey = getKey(input);
-            Long bundleValue = bundle.get(bundleKey);
+            Long bundleValue = bundle.get(input);
             // get a new value after adding this element to bundle
             Long newBundleValue = bundleValue == null ? 1 : bundleValue + 1;
-            bundle.put(bundleKey, newBundleValue);
+            bundle.put(input, newBundleValue);
         } else {
             visits += 1;
-            Integer k = getKey(input);
-            Long storeValue = kvStore.get(k);
+            Long storeValue = store.value();
             Long newStoreValue = storeValue == null ? 1 : storeValue + 1;
-            kvStore.put(k, newStoreValue);
-            output.collect(new StreamRecord<>(new Tuple2<>(k, newStoreValue)));
+            store.update(newStoreValue);
+            output.collect(new StreamRecord<>(new Tuple2<>(input, newStoreValue)));
         }
     }
 
@@ -95,6 +88,7 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
     public void finishBundle() {
         if (bundle != null && !bundle.isEmpty()) {
             finishBundle(bundle, output);
+            bundle.replaceAll((k, v) -> 0L);
         }
     }
 
@@ -104,8 +98,11 @@ public class MyAggregator extends AbstractStreamOperator<Tuple2<Integer, Long>>
                 (k, v) -> {
                     try {
                         visits += 1;
-                        kvStore.put(k, v);
-                        output.collect(new StreamRecord<>(new Tuple2<>(k, v)));
+                        setKeyContextElement1(new StreamRecord<>(k));
+                        Long storeValue = store.value();
+                        Long newStoreValue = storeValue == null ? v : storeValue + v;
+                        store.update(newStoreValue);
+                        output.collect(new StreamRecord<>(new Tuple2<>(k, newStoreValue)));
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
